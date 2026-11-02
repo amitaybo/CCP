@@ -1,0 +1,60 @@
+# Filename: Get-AsafPassword.ps1
+# Retrieves a password for a specific object from the "אסף" safe.
+# Compatible with Windows PowerShell 5.1 and PowerShell 7+.
+
+param (
+    [Parameter(Mandatory = $true)]
+    [ValidateNotNullOrEmpty()]
+    [string]$ObjectName
+)
+
+# Configuration
+$ccpUrl = "https://swtmksafe-web01.clalit.org.il"
+$appId = "CCP-Demo-App" # Shared AppID for both services
+$safe = "אסף"
+$windowsAuth = $false
+
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+
+$body = @{
+    AppID  = $appId
+    Safe   = $safe
+    Object = $ObjectName
+    Reason = "Password retrieval for $ObjectName"
+} | ConvertTo-Json
+
+$params = @{
+    Uri         = "$($ccpUrl.TrimEnd('/'))/AIMWebService/api/Accounts"
+    Method      = 'POST'
+    ContentType = 'application/json; charset=utf-8'
+    Body        = [System.Text.Encoding]::UTF8.GetBytes($body)
+    ErrorAction = 'Stop'
+}
+
+if ($windowsAuth) {
+    $params.UseDefaultCredentials = $true
+}
+
+try {
+    $response = Invoke-RestMethod @params
+
+    # Return the password to the calling service
+    return $response.Content
+}
+catch {
+    $status = $null
+
+    if ($null -ne $_.Exception.Response) {
+        $status = [int]$_.Exception.Response.StatusCode
+    }
+
+    $detail = $_.Exception.Message
+
+    try {
+        $ccpError = $_.ErrorDetails.Message | ConvertFrom-Json
+        $detail = "$($ccpError.ErrorCode): $($ccpError.ErrorMsg)"
+    }
+    catch { }
+
+    throw "Password retrieval failed for object '$ObjectName' in safe '$safe' (HTTP $status): $detail"
+}
